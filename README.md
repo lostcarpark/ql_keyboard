@@ -4,7 +4,7 @@ This is a QL Keyboard USB Interface ussing a Teensy USB Development board.
 
 The keyboard is connected by two ribbon cables in a 9 x 11 matrix. The main keyboard uses rows 1 to 8 and columns 3 to 10. The modifier keys, `ctrl`, `shift` and `alt` have a dedicated row, 9, which is used with columns 1, 2 and 11.
 
-![QL Keyboard matrix](ql_keyboard_martix.png)
+![QL Keyboard matrix](/lostcarpark/ql_keyboard/blob/main/ql_keyboard_matrix.png)
 
 Note that the QL Technical Manual has a number of errors in the keyboard matrix diagram. Corrections to the original version are highlighted in yellow.
 
