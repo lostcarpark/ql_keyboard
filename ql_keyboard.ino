@@ -11,10 +11,16 @@ const int debounce = 16;
 const int debounceBy2 = debounce * 2;
 const int debouncePlus1 = debounce + 1;
 
+const int KEY_EUROPE_1 = 0xf032;  // European 102 key codes not in predefined keycodes.
+const int KEY_EUROPE_2 = 0xf064;
+
 const int ledPin = 13;
 
 const byte modifierRow = 22;
 const byte modifierCols[] = {11, 10, 1}; // Ctrl, Shift, Alt.
+const byte modifierCtrl = 0;  // Modifier positions in array.
+const byte modifierShift = 1;
+const byte modifierAlt = 2;
 const int modifierCodes[] = {MODIFIERKEY_CTRL, MODIFIERKEY_SHIFT, MODIFIERKEY_ALT};
 const int modifierCount = sizeof(modifierCols);
 int modifierStates[modifierCount];
@@ -26,7 +32,7 @@ byte colPins[] = {9,8,7,6,5,4,3,2};
 const int colCount = sizeof(colPins)/sizeof(colPins[0]);
 
 int keyCodes[rowCount][colCount] = {
-  { KEY_LEFT, KEY_ESC, KEY_RIGHT, KEY_SPACE, KEY_UP, KEY_DOWN, KEY_RETURN, KEY_TILDE },
+  { KEY_LEFT, KEY_ESC, KEY_RIGHT, KEY_SPACE, KEY_UP, KEY_DOWN, KEY_RETURN, KEY_EUROPE_2 },
   { KEY_SPACE, KEY_X, KEY_V, KEY_N, KEY_SPACE, KEY_COMMA, KEY_SPACE, KEY_SLASH },
   { KEY_Z, KEY_C, KEY_B, KEY_M, KEY_PERIOD, KEY_QUOTE, KEY_RIGHT_BRACE, KEY_BACKSLASH },
   { KEY_CAPS_LOCK, KEY_S, KEY_F, KEY_G, KEY_K, KEY_SEMICOLON, KEY_LEFT_BRACE, KEY_EQUAL },
@@ -112,7 +118,19 @@ int scanKey(int pin, int state, int keyCode) {
   return 0;
 }
 
-int scanRow(int rowPin, byte *colPins, int count, int *state, int *codes) {
+
+/*
+ * Scan a keyboard row.
+ * Params:
+ *   rowPin: The Teensy pin to output.
+ *   colPins: Array of pins to read from.
+ *   count: The number of input pins to scan.
+ *   state: Array of key state values.
+ *   codes: Array of keyboard scancodes.
+ * Returns:
+ *   Nothing.
+ */
+void scanRow(int rowPin, const byte *colPins, int count, int *state, const int *codes) {
   pinMode(rowPin, OUTPUT);
   digitalWrite(rowPin, LOW);
   delayMicroseconds(200);
@@ -123,13 +141,17 @@ int scanRow(int rowPin, byte *colPins, int count, int *state, int *codes) {
   pinMode(rowPin, INPUT);
 }
 
+
+/*
+ * Main program loop. Runs repeatedly.
+ */
 void loop() {
-  // put your main code here, to run repeatedly:
   scanRow(modifierRow, modifierCols, modifierCount, modifierStates, modifierCodes);
   for (int row = 0; row < rowCount; row++)
     scanRow(rowPins[row], colPins, colCount, keyStates[row], keyCodes[row]);
 
-  if (modifierStates[0] || modifierStates[1] || modifierStates[2])
+  // Just for debugging, turn on LED if any of the modifier keys pressed.
+  if (modifierStates[modifierCtrl] || modifierStates[modifierShift] || modifierStates[modifierAlt])
   //if (keyStates[6][0])
     digitalWrite(ledPin, HIGH);
   else
