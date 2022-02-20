@@ -25,8 +25,6 @@ const int modifierCodes[] = {MODIFIERKEY_CTRL, MODIFIERKEY_SHIFT, MODIFIERKEY_AL
 const int modifierCount = sizeof(modifierCols);
 int modifierStates[modifierCount];
 
-bool backSpace = false;
-
 byte rowPins[] = {21, 20, 19, 18, 17, 16, 15, 14};
 const int rowCount = sizeof(rowPins)/sizeof(rowPins[0]);
  
@@ -45,6 +43,10 @@ int keyCodes[rowCount][colCount] = {
 };
 
 int keyStates[rowCount][colCount];
+
+// USB keyboard can send up to 6 pressed keys. The 6 most recent keys are stored on a stack.
+const int stackSize = 6;
+int keyStack[stackSize];
 
 /*
  * Called for initialisation. Sets up pins for keyboard mapping.
@@ -79,51 +81,234 @@ void setup() {
   for (int i = 0; i < rowCount; i++)
     for (int j = 0; j < colCount; j++)
       keyStates[i][j] = 0;
+
+  for (int i = 0; i < stackSize; i++)
+    keyStack[i] = 0;
+}
+
+/*
+ * Check if key is on stack.
+ * Params:
+ *   keyCode: the key scancode to check.
+ * Returns:
+ *   True if key on stack, otherwise false.
+ */
+bool checkStack(int keyCode) {
+  for (int i = 0; i < stackSize; i++)
+    if (keyStack[i] == keyCode)
+      return true;
+  return false;
+}
+
+/*
+ * Add key to stack.
+ * Advance any keys already on stack to the next slot, and add new key to start,
+ * Params:
+ *   keyCode: the key scancode to add.
+ * Returns:
+ *   Nothing.
+ */
+void addToStack(int keyCode) {
+  if (checkStack(keyCode))
+    return;   // Key is already on stack, so nothing to do.
+
+  // Advance any keys on the stack by one position, and add the new key to the front.
+  for (int i = stackSize - 1; i > 0; i--)
+    keyStack[i] = keyStack[i - 1];
+
+  keyStack[0] = keyCode;
+}
+
+/*
+ * Remove key from stack.
+ * If key scancode on stack, remove it. Move any other keys up to take its place.
+ * Params:
+ *   keyCode: the key scancode to remove.
+ * Returns:
+ *   Nothing.
+ */
+void removeFromStack(int keyCode) {
+  for (int i = 0; i < stackSize; i++) {
+    if (keyStack[i] == keyCode)
+      keyStack[i] = 0;
+
+    if (keyStack[i] == 0 && i < stackSize - 1 && keyStack[i + 1] != 0) {
+      int temp = keyStack[i];
+      keyStack[i] = keyStack[i + 1];
+      keyStack[i + 1] = temp;
+    }
+  }
+}
+
+/*
+ * Combine any pressed modifiers with OR operator.
+ */
+int combineModifiers(bool suppressCtrl, bool suppressAlt, bool sendRightAlt, bool sendGUI) {
+  int combined = 0;
+  if (!suppressCtrl && modifierStates[modifierCtrl] > debouncePlus1)
+    combined |= MODIFIERKEY_CTRL;
+  if (modifierStates[modifierShift] > debouncePlus1)
+    combined |= MODIFIERKEY_SHIFT;
+  if (!suppressAlt && modifierStates[modifierAlt] > debouncePlus1)
+    combined |= MODIFIERKEY_ALT;
+  if (sendRightAlt)
+    combined |= MODIFIERKEY_RIGHT_ALT;
+  if (sendGUI)
+    combined |= MODIFIERKEY_GUI;
+  return combined;
+}
+
+/*
+ * Send all pressed keys on stack with modifiers.
+ * Params:
+ *   suppressCtrl: If true, don't send CTRL modifier.
+ *   suppressAlt: If true, don't send ALT modifier.
+ *   sendRightAlt: If true, send with right ALT modifier.
+ *   sendSuper: If true, send with SUPER modifier.
+ * Returns:
+ *   Nothing.
+ */
+void sendKeyStack(bool suppressCtrl = false, bool suppressAlt = false, bool sendRightAlt = false, bool sendGUI = false) {
+  Keyboard.set_key1(keyStack[0]);
+  Keyboard.set_key2(keyStack[1]);
+  Keyboard.set_key3(keyStack[2]);
+  Keyboard.set_key4(keyStack[3]);
+  Keyboard.set_key5(keyStack[4]);
+  Keyboard.set_key6(keyStack[5]);
+  Keyboard.set_modifier(combineModifiers(suppressCtrl, suppressAlt, sendRightAlt, sendGUI));
+  Keyboard.send_now();
 }
 
 
+/*
+ * Handle keypres.
+ * Modify sent key if required.
+ * Params:
+ *   keyCode: Keypress scan code.
+ * Returns:
+ *   Nothing.
+ */
 void keyPress(int keyCode) {
-  // Check for CTRL+LEFT.
+  // Check for CTRL+ALT+RIGHT and change to CTRL+ALT+DEL.
+  if (keyCode == KEY_RIGHT && modifierStates[modifierCtrl] > debouncePlus1 && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(KEY_DELETE);  // Send delete instead of right.
+    sendKeyStack(false, false);  // Don't suppress modifiers - will send CTRL+ALT+DEL.
+    return;
+  }
+
+  // Check for ALT+F5 and change to "Super" key.
+  if (keyCode == KEY_F5 && modifierStates[modifierAlt] > debouncePlus1) {
+    sendKeyStack(false, true, false, true);    // Send keys. Suppress alt key and force super key.
+    return;
+  }
+
+  // Check for CTRL+LEFT and change to BACKSPACE.
   if (keyCode == KEY_LEFT && modifierStates[modifierCtrl] > debouncePlus1) {
-    // Release ctrl and press backspace key.
-    if (!backSpace) {
-      // If not already in backspace, release CTRL key.
-      Keyboard.release(MODIFIERKEY_CTRL);
-      delayMicroseconds(200);
-    }
-    Keyboard.press(KEY_BACKSPACE);
-    backSpace = true;
+    addToStack(KEY_BACKSPACE);  // Send backspace instead of left.
+    sendKeyStack(true);    // Send keys, but suppress CTRL.
     return;
   }
 
-  // Ignore any CTRL changes while in backspace.
-  if (keyCode == MODIFIERKEY_CTRL && backSpace) {
+  // Check for CTRL+RIGHT and change to DELETE (right).
+  if (keyCode == KEY_RIGHT && modifierStates[modifierCtrl] > debouncePlus1) {
+    addToStack(KEY_DELETE);  // Send delete instead of right.
+    sendKeyStack(true);
     return;
   }
 
-  Keyboard.press(keyCode);
+  // Check for ALT+LEFT and change to HOME.
+  if (keyCode == KEY_LEFT && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(KEY_HOME);  // Send home instead of left.
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
+  // Check for ALT+RIGHT and change to END.
+  if (keyCode == KEY_RIGHT && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(KEY_END);  // Send end instead of right.
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
+  // Check for ALT+UP and change to PAGE UP.
+  if (keyCode == KEY_UP && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(KEY_PAGE_UP);  // Send page up instead of up.
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
+  // Check for ALT+DOWN and change to PAGE DOWN.
+  if (keyCode == KEY_DOWN && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(KEY_PAGE_DOWN);  // Send page down instead of down.
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
+  // If ALT + 4 pressed, change modifier to right alt for Euro sign.
+  if (keyCode == KEY_4 && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(keyCode);
+    sendKeyStack(false, true, true);    // Send keys, but suppress alt and send right alt.
+    return;
+  }  
+
+  // If ALT + AEIOU pressed, change modifier to right alt for Irish accents.
+  if ((keyCode == KEY_A || keyCode == KEY_E || keyCode == KEY_I || keyCode == KEY_O || keyCode == KEY_U)
+      && modifierStates[modifierAlt] > debouncePlus1) {
+    addToStack(keyCode);
+    sendKeyStack(false, true, true);    // Send keys, but suppress alt and send right alt.
+    return;
+  }  
+
+  // If modifier key was pressed, do not add to stack, but send key stack.
+  if (keyCode == MODIFIERKEY_CTRL || keyCode == MODIFIERKEY_SHIFT || keyCode == MODIFIERKEY_ALT) {
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
+  // If we've got here, just a normal keypress. Add to stack and send.
+  addToStack(keyCode);
+  sendKeyStack();
 }
 
-
+/*
+ * Handle key release, including release of modified keys.
+ * Params:
+ *   keyCode: scan code of released key.
+ * Returns:
+ *   Nothing.
+ */
 void keyRelease(int keyCode) {
+  if (keyCode == KEY_F5 && modifierStates[modifierAlt] > debouncePlus1) {
+    sendKeyStack(false, true, false, false);    // Send keys. Suppress alt key and release super key (important as Super triggers on release).
+    return;
+  }
+
   // Check if left released and in backspace.
-  if (keyCode == KEY_LEFT && backSpace) {
-    Keyboard.release(KEY_BACKSPACE);
-    if (modifierStates[modifierCtrl] > debouncePlus1) {
-      // If CTRL still pressed, resend CTRL press after suitable delay.
-      delayMicroseconds(200);
-      Keyboard.press(MODIFIERKEY_CTRL);
-    }
-    backSpace = false;
+  if (keyCode == KEY_LEFT) {
+    removeFromStack(KEY_BACKSPACE); // Left arrow released. Remove backspace from stack as well.
+    removeFromStack(KEY_HOME);
+  }
+
+  if (keyCode == KEY_RIGHT) {
+    removeFromStack(KEY_DELETE); // Right arrow released. Remove delete from stack as well.
+    removeFromStack(KEY_END);
+  }
+
+  if (keyCode == KEY_UP) {
+    removeFromStack(KEY_PAGE_UP);
+  }
+
+  if (keyCode == KEY_DOWN) {
+    removeFromStack(KEY_PAGE_DOWN);
+  }
+
+  if (keyCode == MODIFIERKEY_CTRL || keyCode == MODIFIERKEY_SHIFT || keyCode == MODIFIERKEY_ALT) {
+    sendKeyStack();
     return;
   }
 
-  // Ignore releasing CTRL while in backspace.
-  if (keyCode == MODIFIERKEY_CTRL && backSpace) {
-    return;
-  }
-
-  Keyboard.release(keyCode);
+  removeFromStack(keyCode);
+  sendKeyStack();
 }
 
 
@@ -153,7 +338,7 @@ int scanKey(int pin, int state, int keyCode) {
     }
 
     // Key still pressed, so send keypress again, and go back to debounce*2.
-    keyPress(keyCode);
+    //keyPress(keyCode);
     return debounceBy2;
   }
 

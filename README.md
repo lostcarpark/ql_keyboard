@@ -28,6 +28,23 @@ The inputs are set to a `high` state by default. The program loop outputs a `low
 
 The USB key scancodes are stored in an array, and sent when the relevant key matrix position is pressed.
 
+## Special Keys
+
+The QL keyboard is missing a number of keys found on a PC keyboard, so some combinations have been added to simulate missing keys and combinations.
+
+- CTRL LEFT = BACKSPACE
+- CTRL RIGHT = DELETE
+- ALT LEFT = HOME
+- ALT RIGHT = END
+- ALT UP = PAGE UP
+- ALT DOWN = PAGE DOWN
+- CTRL ALT RIGHT = CTRL ALT DEL
+- ALT F5 = SUPER (Windows) Key
+- ALT 4 = RIGHT-ALT 4 - Euro sign on UK Keyboard
+- ALT A E I O U = RIGHT-ALT A E I O U - This is useful to me for Irish keyboard layout
+
+The QL keyboard has swapped the positions of @ and ", and # and £ compared to a normal UK layout. I've considered swapping these in the keyboard, but I think it would be better to handle these by remapping on the PC side, if desired. Please open an issue if you think I should change this, or would like mappings I've missed.
+
 ## Future Development
 
 A number of features are planned for the future.
