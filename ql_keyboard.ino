@@ -25,6 +25,8 @@ const int modifierCodes[] = {MODIFIERKEY_CTRL, MODIFIERKEY_SHIFT, MODIFIERKEY_AL
 const int modifierCount = sizeof(modifierCols);
 int modifierStates[modifierCount];
 
+bool backSpace = false;
+
 byte rowPins[] = {21, 20, 19, 18, 17, 16, 15, 14};
 const int rowCount = sizeof(rowPins)/sizeof(rowPins[0]);
  
@@ -34,7 +36,7 @@ const int colCount = sizeof(colPins)/sizeof(colPins[0]);
 int keyCodes[rowCount][colCount] = {
   { KEY_LEFT, KEY_ESC, KEY_RIGHT, KEY_SPACE, KEY_UP, KEY_DOWN, KEY_RETURN, KEY_EUROPE_2 },
   { KEY_SPACE, KEY_X, KEY_V, KEY_N, KEY_SPACE, KEY_COMMA, KEY_SPACE, KEY_SLASH },
-  { KEY_Z, KEY_C, KEY_B, KEY_M, KEY_PERIOD, KEY_QUOTE, KEY_RIGHT_BRACE, KEY_BACKSLASH },
+  { KEY_Z, KEY_C, KEY_B, KEY_M, KEY_PERIOD, KEY_QUOTE, KEY_RIGHT_BRACE, KEY_EUROPE_1 },
   { KEY_CAPS_LOCK, KEY_S, KEY_F, KEY_G, KEY_K, KEY_SEMICOLON, KEY_LEFT_BRACE, KEY_EQUAL },
   { KEY_3, KEY_1, KEY_A, KEY_D, KEY_H, KEY_J, KEY_L, KEY_P },
   { KEY_W, KEY_TAB, KEY_R, KEY_Y, KEY_I, KEY_O, KEY_9, KEY_MINUS },
@@ -80,6 +82,51 @@ void setup() {
 }
 
 
+void keyPress(int keyCode) {
+  // Check for CTRL+LEFT.
+  if (keyCode == KEY_LEFT && modifierStates[modifierCtrl] > debouncePlus1) {
+    // Release ctrl and press backspace key.
+    if (!backSpace) {
+      // If not already in backspace, release CTRL key.
+      Keyboard.release(MODIFIERKEY_CTRL);
+      delayMicroseconds(200);
+    }
+    Keyboard.press(KEY_BACKSPACE);
+    backSpace = true;
+    return;
+  }
+
+  // Ignore any CTRL changes while in backspace.
+  if (keyCode == MODIFIERKEY_CTRL && backSpace) {
+    return;
+  }
+
+  Keyboard.press(keyCode);
+}
+
+
+void keyRelease(int keyCode) {
+  // Check if left released and in backspace.
+  if (keyCode == KEY_LEFT && backSpace) {
+    Keyboard.release(KEY_BACKSPACE);
+    if (modifierStates[modifierCtrl] > debouncePlus1) {
+      // If CTRL still pressed, resend CTRL press after suitable delay.
+      delayMicroseconds(200);
+      Keyboard.press(MODIFIERKEY_CTRL);
+    }
+    backSpace = false;
+    return;
+  }
+
+  // Ignore releasing CTRL while in backspace.
+  if (keyCode == MODIFIERKEY_CTRL && backSpace) {
+    return;
+  }
+
+  Keyboard.release(keyCode);
+}
+
+
 /*
  * Scan a key and check for keybounce.
  * Params:
@@ -94,19 +141,19 @@ int scanKey(int pin, int state, int keyCode) {
   // If state is zero, and key down, generate keypress.
   if (state == 0 && pinVal == LOW) {
     // Key press event.
-    Keyboard.press(keyCode);
+    keyPress(keyCode);
     return debounceBy2;
   }
 
   // If state is debounce + 1 and key released, generate key release.
   if (state == debouncePlus1) {
     if (pinVal == HIGH) {
-      Keyboard.release(keyCode);
+      keyRelease(keyCode);
       return state - 1;
     }
 
     // Key still pressed, so send keypress again, and go back to debounce*2.
-    Keyboard.press(keyCode);
+    keyPress(keyCode);
     return debounceBy2;
   }
 
