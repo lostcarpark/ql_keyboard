@@ -40,6 +40,7 @@ The QL keyboard is missing a number of keys found on a PC keyboard, so some comb
 - ALT DOWN = PAGE DOWN
 - CTRL ALT RIGHT = CTRL ALT DEL
 - ALT F5 = SUPER (Windows) Key
+- ALT \ = PRINT SCREEN
 - ALT 4 = RIGHT-ALT 4 - Euro sign on UK Keyboard
 - ALT A E I O U = RIGHT-ALT A E I O U - This is useful to me for Irish keyboard layout
 
