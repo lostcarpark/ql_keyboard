@@ -25,6 +25,12 @@ const int modifierCodes[] = {MODIFIERKEY_CTRL, MODIFIERKEY_SHIFT, MODIFIERKEY_AL
 const int modifierCount = sizeof(modifierCols);
 int modifierStates[modifierCount];
 
+// In addition to storing debounce states, store booleans for each modifier:
+bool ctrlPressed = false;
+bool shiftPressed = false;
+bool altPressed = false;
+bool guiPressed = false;   // GUI (Super) key is a special modifier, we're setting when ALT+F5 held down.
+
 byte rowPins[] = {21, 20, 19, 18, 17, 16, 15, 14};
 const int rowCount = sizeof(rowPins)/sizeof(rowPins[0]);
  
@@ -143,17 +149,17 @@ void removeFromStack(int keyCode) {
 /*
  * Combine any pressed modifiers with OR operator.
  */
-int combineModifiers(bool suppressCtrl, bool suppressAlt, bool sendRightAlt, bool sendGUI) {
+int combineModifiers(bool suppressCtrl, bool suppressAlt, bool sendRightAlt) {
   int combined = 0;
-  if (!suppressCtrl && modifierStates[modifierCtrl] > debouncePlus1)
+  if (!suppressCtrl && ctrlPressed)
     combined |= MODIFIERKEY_CTRL;
-  if (modifierStates[modifierShift] > debouncePlus1)
+  if (shiftPressed)
     combined |= MODIFIERKEY_SHIFT;
-  if (!suppressAlt && modifierStates[modifierAlt] > debouncePlus1)
+  if (!suppressAlt && !guiPressed && altPressed)  // Since ALT+F5 is Super key, if it is pressed, we don't want to send ALT.
     combined |= MODIFIERKEY_ALT;
   if (sendRightAlt)
     combined |= MODIFIERKEY_RIGHT_ALT;
-  if (sendGUI)
+  if (guiPressed)
     combined |= MODIFIERKEY_GUI;
   return combined;
 }
@@ -168,14 +174,14 @@ int combineModifiers(bool suppressCtrl, bool suppressAlt, bool sendRightAlt, boo
  * Returns:
  *   Nothing.
  */
-void sendKeyStack(bool suppressCtrl = false, bool suppressAlt = false, bool sendRightAlt = false, bool sendGUI = false) {
+void sendKeyStack(bool suppressCtrl = false, bool suppressAlt = false, bool sendRightAlt = false) {
   Keyboard.set_key1(keyStack[0]);
   Keyboard.set_key2(keyStack[1]);
   Keyboard.set_key3(keyStack[2]);
   Keyboard.set_key4(keyStack[3]);
   Keyboard.set_key5(keyStack[4]);
   Keyboard.set_key6(keyStack[5]);
-  Keyboard.set_modifier(combineModifiers(suppressCtrl, suppressAlt, sendRightAlt, sendGUI));
+  Keyboard.set_modifier(combineModifiers(suppressCtrl, suppressAlt, sendRightAlt));
   Keyboard.send_now();
 }
 
@@ -190,62 +196,63 @@ void sendKeyStack(bool suppressCtrl = false, bool suppressAlt = false, bool send
  */
 void keyPress(int keyCode) {
   // Check for CTRL+ALT+RIGHT and change to CTRL+ALT+DEL.
-  if (keyCode == KEY_RIGHT && modifierStates[modifierCtrl] > debouncePlus1 && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_RIGHT && ctrlPressed && altPressed) {
     addToStack(KEY_DELETE);  // Send delete instead of right.
     sendKeyStack(false, false);  // Don't suppress modifiers - will send CTRL+ALT+DEL.
     return;
   }
 
-  // Check for ALT+F5 and change to "Super" key.
-  if (keyCode == KEY_F5 && modifierStates[modifierAlt] > debouncePlus1) {
-    sendKeyStack(false, true, false, true);    // Send keys. Suppress alt key and force super key.
-    return;
-  }
-
   // Check for CTRL+LEFT and change to BACKSPACE.
-  if (keyCode == KEY_LEFT && modifierStates[modifierCtrl] > debouncePlus1) {
+  if (keyCode == KEY_LEFT && ctrlPressed) {
     addToStack(KEY_BACKSPACE);  // Send backspace instead of left.
     sendKeyStack(true);    // Send keys, but suppress CTRL.
     return;
   }
 
   // Check for CTRL+RIGHT and change to DELETE (right).
-  if (keyCode == KEY_RIGHT && modifierStates[modifierCtrl] > debouncePlus1) {
+  if (keyCode == KEY_RIGHT && ctrlPressed) {
     addToStack(KEY_DELETE);  // Send delete instead of right.
     sendKeyStack(true);
     return;
   }
 
   // Check for ALT+LEFT and change to HOME.
-  if (keyCode == KEY_LEFT && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_LEFT && altPressed) {
     addToStack(KEY_HOME);  // Send home instead of left.
     sendKeyStack(false, true);    // Send keys, but suppress alt.
     return;
   }
 
   // Check for ALT+RIGHT and change to END.
-  if (keyCode == KEY_RIGHT && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_RIGHT && altPressed) {
     addToStack(KEY_END);  // Send end instead of right.
     sendKeyStack(false, true);    // Send keys, but suppress alt.
     return;
   }
 
   // Check for ALT+UP and change to PAGE UP.
-  if (keyCode == KEY_UP && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_UP && altPressed) {
     addToStack(KEY_PAGE_UP);  // Send page up instead of up.
     sendKeyStack(false, true);    // Send keys, but suppress alt.
     return;
   }
 
   // Check for ALT+DOWN and change to PAGE DOWN.
-  if (keyCode == KEY_DOWN && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_DOWN && altPressed) {
     addToStack(KEY_PAGE_DOWN);  // Send page down instead of down.
     sendKeyStack(false, true);    // Send keys, but suppress alt.
     return;
   }
 
+  // If ALT + \ pressed, sent PRT-SCR.
+  if (keyCode == KEY_EUROPE_2 && altPressed) {
+    addToStack(KEY_PRINTSCREEN);
+    sendKeyStack(false, true);    // Send keys, but suppress alt.
+    return;
+  }
+
   // If ALT + 4 pressed, change modifier to right alt for Euro sign.
-  if (keyCode == KEY_4 && modifierStates[modifierAlt] > debouncePlus1) {
+  if (keyCode == KEY_4 && altPressed) {
     addToStack(keyCode);
     sendKeyStack(false, true, true);    // Send keys, but suppress alt and send right alt.
     return;
@@ -253,15 +260,37 @@ void keyPress(int keyCode) {
 
   // If ALT + AEIOU pressed, change modifier to right alt for Irish accents.
   if ((keyCode == KEY_A || keyCode == KEY_E || keyCode == KEY_I || keyCode == KEY_O || keyCode == KEY_U)
-      && modifierStates[modifierAlt] > debouncePlus1) {
+      && altPressed) {
     addToStack(keyCode);
     sendKeyStack(false, true, true);    // Send keys, but suppress alt and send right alt.
     return;
   }  
 
-  // If modifier key was pressed, do not add to stack, but send key stack.
-  if (keyCode == MODIFIERKEY_CTRL || keyCode == MODIFIERKEY_SHIFT || keyCode == MODIFIERKEY_ALT) {
-    sendKeyStack(false, true);    // Send keys, but suppress alt.
+  // Check for ALT+F5 and change to "Super" key.
+  if (keyCode == KEY_F5 && altPressed) {
+    guiPressed = true;
+    sendKeyStack(false, true);    // Send keys. Suppress ALT. Not essential to suppress, since sendKeyStack won't send ALT with SUPER, but best to be consistent with release.
+    return;
+  }
+
+  // If CTRL key was pressed, do not add to stack, but send key stack.
+  if (keyCode == MODIFIERKEY_CTRL) {
+    ctrlPressed = true;
+    sendKeyStack();    // Send keys with new modifier state.
+    return;
+  }
+
+  // If SHIFT key was pressed, do not add to stack, but send key stack.
+  if (keyCode == MODIFIERKEY_SHIFT) {
+    shiftPressed = true;
+    sendKeyStack();    // Send keys with new modifier state.
+    return;
+  }
+
+  // If ALT key was pressed, do not add to stack, but send key stack.
+  if (keyCode == MODIFIERKEY_ALT) {
+    altPressed = true;
+    sendKeyStack();    // Send keys with new modifier state.
     return;
   }
 
@@ -278,11 +307,6 @@ void keyPress(int keyCode) {
  *   Nothing.
  */
 void keyRelease(int keyCode) {
-  if (keyCode == KEY_F5 && modifierStates[modifierAlt] > debouncePlus1) {
-    sendKeyStack(false, true, false, false);    // Send keys. Suppress alt key and release super key (important as Super triggers on release).
-    return;
-  }
-
   // Check if left released and in backspace.
   if (keyCode == KEY_LEFT) {
     removeFromStack(KEY_BACKSPACE); // Left arrow released. Remove backspace from stack as well.
@@ -302,8 +326,31 @@ void keyRelease(int keyCode) {
     removeFromStack(KEY_PAGE_DOWN);
   }
 
-  if (keyCode == MODIFIERKEY_CTRL || keyCode == MODIFIERKEY_SHIFT || keyCode == MODIFIERKEY_ALT) {
-    sendKeyStack();
+  if (keyCode == KEY_EUROPE_2) {
+    removeFromStack(KEY_PRINTSCREEN);
+  }
+
+  if (keyCode == KEY_F5 && guiPressed) {      // Release GUI (Super) key.
+    guiPressed = false;
+    sendKeyStack(false, true);  // Send keys with ALT suppressed. Important, as otherwise gets released as ALT+SUPER.
+    return;
+  }
+
+  if (keyCode == MODIFIERKEY_CTRL) {
+    ctrlPressed = false;
+    sendKeyStack();    // Send keys with new modifier state.
+    return;
+  }
+
+  if (keyCode == MODIFIERKEY_SHIFT) {
+    shiftPressed = false;
+    sendKeyStack();    // Send keys with new modifier state.
+    return;
+  }
+
+  if (keyCode == MODIFIERKEY_ALT) {
+    altPressed = false;
+    sendKeyStack();    // Send keys with new modifier state.
     return;
   }
 
